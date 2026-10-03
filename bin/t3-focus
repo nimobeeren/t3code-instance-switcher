@@ -4,8 +4,8 @@
 # or run it from a terminal.
 #
 # With no instance running it starts them all. With one running it focuses it.
-# With several running it switches away from the instance you are in, or that
-# owns the frontmost window, and otherwise goes to the one you used most
+# With several running it switches away from the instance you are in when you
+# are in one of them, and otherwise goes to the one you used most
 # recently. Prints the name of the instance it brought forward. With --dry-run
 # it only prints the one it would pick.
 set -euo pipefail

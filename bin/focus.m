@@ -8,9 +8,9 @@
 // The caller (bin/t3-focus) exports T3_FOCUS_STATE_DIR, T3_FOCUS_EXEC and
 // T3_FOCUS_INSTANCES, a comma-separated list of name=/path/to/App.app pairs
 // taken from config.sh. Which instance goes forward is, in order: the only
-// running one; when one of them is the focused application or owns the
-// frontmost window, the most recently used one that is not it; otherwise the
-// most recently used one, then the last one focused here. Window order comes
+// running one; when the focused application is one of them, the most recently
+// used one that is not it; otherwise the most recently used one, then the
+// last one focused here. Window order comes
 // from the window server, so the most recently used instance stays correct
 // after clicks, Cmd-Tab and our own focusing, with nothing to record along the
 // way. A window that is closed, minimized or on another Space is not in the
@@ -252,19 +252,13 @@ static NSString *DoWork(BOOL dryRun) {
       }
     }
   } else {
-    // Switch away from the instance the user is in: the focused application
-    // when it is one of ours, else the owner of the frontmost of our windows.
+    // Switch away from the instance the user is in, when it is one of ours.
+    // When the user is in another app there is nothing to switch away from:
+    // going to the most recently used instance is what brings them back to
+    // where they were. (The frontmost of our windows is that instance, so it
+    // must not count as the one to avoid.)
     NSInteger away = IndexOfPid(pids, FocusedPid());
-    if (away < 0 || !up[away].boolValue) {
-      away = -1;
-      for (NSNumber *pid in WindowOwnerPids()) {
-        NSInteger index = IndexOfPid(pids, pid.intValue);
-        if (index >= 0 && up[index].boolValue) {
-          away = index;
-          break;
-        }
-      }
-    }
+    if (away >= 0 && !up[away].boolValue) away = -1;
     target = RankedTarget(pids, up, away, ReadLast());
   }
 
