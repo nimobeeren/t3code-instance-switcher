@@ -42,11 +42,10 @@ for name in personal work; do
   done
 done
 
-REAL_HOME="$REAL_HOME" python3 - $targets <<'PY'
-import json, os, sqlite3, sys
+python3 - $targets <<'PY'
+import sqlite3, sys
 from pathlib import Path
 
-real_home = os.environ["REAL_HOME"]
 homes = [arg.split("=", 2) for arg in sys.argv[1:]]
 
 for name, source_home, target_home in homes:
@@ -59,22 +58,11 @@ for name, source_home, target_home in homes:
         con.execute(f"VACUUM INTO '{escaped}'")
         con.close()
         print(f"  {name}: state.sqlite snapshotted")
-
-    settings = userdata / "settings.json"
-    if settings.exists():
-        data = json.loads(settings.read_text())
-        instances = data.setdefault("providerInstances", {})
-        changed = False
-        for instance in instances.values():
-            env = instance.setdefault("environment", [])
-            if any(e.get("name") == "HOME" for e in env):
-                continue
-            env.append({"name": "HOME", "value": real_home, "sensitive": False})
-            changed = True
-        if changed:
-            settings.write_text(json.dumps(data, indent=2) + "\n")
-            print(f"  {name}: provider env HOME -> {real_home}")
 PY
+
+# Client settings, provider env HOME and the UI state live outside the copied
+# userdata; seed-ui brings those over from the current T3 Code.
+"$BIN_DIR/seed-ui"
 
 echo ""
 echo "seeded. open the apps:"

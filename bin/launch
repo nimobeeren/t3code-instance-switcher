@@ -66,6 +66,10 @@ fi
 # and therefore its own single-instance lock — while a symlink farm keeps real
 # dotfiles (.ssh, .gitconfig, .config, ...) visible at their usual paths.
 mkdir -p "$SHADOW_HOME/Library"
+# Keep macOS keychain discovery on the real home while userData stays separate.
+if [ ! -e "$SHADOW_HOME/Library/Keychains" ] && [ ! -L "$SHADOW_HOME/Library/Keychains" ]; then
+  ln -s "$REAL_HOME/Library/Keychains" "$SHADOW_HOME/Library/Keychains"
+fi
 shopt -s nullglob dotglob
 for entry in "$REAL_HOME"/*; do
   base="${entry##*/}"

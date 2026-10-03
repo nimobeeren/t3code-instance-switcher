@@ -64,6 +64,10 @@ make_app work
 
 echo ""
 echo "next:"
-echo "  ./bin/seed-trial                     # trial only: copy the live homes"
+if [ "$MODE" = trial ]; then
+  echo "  ./bin/seed-trial                     # trial only: copy the live homes"
+else
+  echo "  ./bin/seed-ui                        # carry the current T3 Code's settings in"
+fi
 echo "  open \"$APPS_DIR/T3 Code Personal.app\""
 echo "  bind raycast/t3-focus.sh to Cmd+1 in Raycast"

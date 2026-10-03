@@ -4,7 +4,7 @@
 # MODE=trial  disposable data copies on free ports, live setup untouched
 # MODE=daily  the cutover layout: ~/.t3-personal and ~/.t3-work on 3773/3774
 
-MODE=trial
+MODE=daily
 
 REAL_HOME="$HOME"
 RUNTIME_DIR="$HOME/.local/share/t3-instances"

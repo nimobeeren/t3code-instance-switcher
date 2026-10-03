@@ -1,22 +1,42 @@
 #!/bin/bash
 # Remove what install and seed-trial created. The live T3 homes are never touched.
 #
-# usage: uninstall [--trial]
-#   --trial  also delete the seeded trial homes and the shadow homes
+# usage: uninstall [--apps] [--trial] [--runtime]
+#   no flags   same as --apps
+#   --apps     delete the two launcher apps
+#   --trial    delete the seeded trial homes
+#   --runtime  delete the shadow homes and the state dir; only ever safe when
+#              no instance runs, and wrong in MODE=daily where the shadow homes
+#              belong to the instances themselves
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$BIN_DIR/../config.sh"
 
-for name in personal work; do
-  app="$(instance_app "$name")"
-  if [ -d "$app" ]; then
-    rm -rf "$app"
-    echo "removed $app"
-  fi
+remove_apps=false
+[ $# -eq 0 ] && remove_apps=true
+for arg in "$@"; do
+  case "$arg" in
+    --apps) remove_apps=true ;;
+    --trial | --runtime) ;;
+    *)
+      echo "usage: uninstall [--apps] [--trial] [--runtime]" >&2
+      exit 2
+      ;;
+  esac
 done
 
-if [ "${1:-}" = --trial ]; then
+if $remove_apps; then
+  for name in personal work; do
+    app="$(instance_app "$name")"
+    if [ -d "$app" ]; then
+      rm -rf "$app"
+      echo "removed $app"
+    fi
+  done
+fi
+
+if [ "${1:-}" = --trial ] || [ "${2:-}" = --trial ]; then
   # The trial homes live at a fixed path regardless of MODE; the live homes
   # (~/.t3, ~/.t3-work, ~/.t3-personal) are never candidates here.
   for name in personal work; do
@@ -27,6 +47,9 @@ if [ "${1:-}" = --trial ]; then
     fi
   done
   rmdir "$HOME/.t3-trial" 2>/dev/null || true
+fi
+
+if [ "${1:-}" = --runtime ] || [ "${2:-}" = --runtime ]; then
   if [ -d "$RUNTIME_DIR" ]; then
     rm -rf "$RUNTIME_DIR"
     echo "removed $RUNTIME_DIR"
