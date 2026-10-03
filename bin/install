@@ -5,6 +5,8 @@ set -euo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$BIN_DIR/../config.sh"
 
+"$BIN_DIR/build"
+
 BUNDLE="$(t3_bundle)"
 ICON="$BUNDLE/Contents/Resources/icon.icns"
 

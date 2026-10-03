@@ -8,40 +8,21 @@
 # Bind this to Cmd+1 in Raycast. With no instance running it starts both. With
 # one running it focuses it. With both running it switches to the other one when
 # one of them is already focused — or owns the frontmost window — and otherwise
-# goes to the one you used most recently.
+# goes to the one you used most recently. bin/focus decides and activates by
+# pid; the first press leaves a warm helper behind so later presses are quick.
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
 . "$BIN_DIR/../config.sh"
 
-personal=false
-work=false
-if instance_running personal; then personal=true; fi
-if instance_running work; then work=true; fi
-
-if ! $personal && ! $work; then
-  echo personal >"$STATE_DIR/last"
-  /usr/bin/open "$(instance_app personal)" "$(instance_app work)"
-  exit 0
+if [ ! -x "$BIN_DIR/focus" ] || [ "$BIN_DIR/focus.m" -nt "$BIN_DIR/focus" ]; then
+  "$BIN_DIR/build" || true
 fi
 
-fallback=personal
-if [ -s "$STATE_DIR/last" ]; then
-  fallback="$(<"$STATE_DIR/last")"
-fi
-case "$fallback" in
-  personal | work) ;;
-  *) fallback=personal ;;
-esac
+BUNDLE="$(t3_bundle)"
+export T3_FOCUS_STATE_DIR="$STATE_DIR"
+export T3_FOCUS_APP_PERSONAL="$(instance_app personal)"
+export T3_FOCUS_APP_WORK="$(instance_app work)"
+export T3_FOCUS_EXEC="$BUNDLE/Contents/MacOS/$(t3_executable "$BUNDLE")"
 
-args=(--fallback "$fallback")
-if $personal; then args+=(--personal "$(instance_pid personal)"); fi
-if $work; then args+=(--work "$(instance_pid work)"); fi
-
-# focus.py picks the instance and activates it by pid. A non-zero exit means it
-# printed the name but could not activate it — the instance is still starting up
-# and has no NSRunningApplication yet, while the app bundle reaches it anyway.
-if ! target="$(python3 -E -S -B "$BIN_DIR/focus.py" "${args[@]}")"; then
-  /usr/bin/open "$(instance_app "${target:-$fallback}")"
-fi
-printf '%s\n' "${target:-$fallback}" >"$STATE_DIR/last"
+exec "$BIN_DIR/focus"

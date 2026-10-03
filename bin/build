@@ -1,0 +1,21 @@
+#!/bin/bash
+# Compile bin/focus from focus.m. Run by install, and by the Cmd+1 wrapper
+# whenever the source is newer than the binary.
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CLANG="$(command -v clang || true)"
+if [ -z "$CLANG" ] && [ -x /usr/bin/xcrun ]; then
+  CLANG="$(/usr/bin/xcrun --find clang 2>/dev/null || true)"
+fi
+if [ -z "$CLANG" ]; then
+  echo "focus: clang not found; install the Xcode Command Line Tools" >&2
+  exit 1
+fi
+
+"$CLANG" -O2 -Wall -Wextra -fobjc-arc \
+  -framework Cocoa -framework CoreGraphics \
+  "$BIN_DIR/focus.m" -o "$BIN_DIR/focus.new"
+mv "$BIN_DIR/focus.new" "$BIN_DIR/focus"
+echo "built $BIN_DIR/focus"
