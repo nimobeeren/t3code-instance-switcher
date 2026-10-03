@@ -1,0 +1,25 @@
+#!/bin/bash
+# What the two instances are and whether they run.
+#
+# usage: status
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+echo "mode: $MODE"
+for name in personal work; do
+  state="stopped"
+  if instance_running "$name"; then
+    state="running (pid $(instance_pid "$name"))"
+  fi
+  app="app missing"
+  if [ -d "$(instance_app "$name")" ]; then
+    app="app installed"
+  fi
+  printf '%-9s %-8s port %-5s %s  %s  %s\n' \
+    "$name" "$state" "$(instance_port "$name")" "$app" \
+    "$(instance_home "$name")" \
+    "$([ -d "$(instance_home "$name")/userdata" ] && echo seeded || echo not-seeded)"
+done
+echo "last touched: $(cat "$STATE_DIR/last" 2>/dev/null || echo -)"

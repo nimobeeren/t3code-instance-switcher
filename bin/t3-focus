@@ -1,0 +1,3 @@
+#!/bin/bash
+# Terminal entry point; the Raycast command lives in ../raycast/t3-focus.sh.
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../raycast/t3-focus.sh" "$@"

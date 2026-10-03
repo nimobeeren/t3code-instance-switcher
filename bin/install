@@ -1,0 +1,69 @@
+#!/bin/bash
+# Write the two launcher apps into ~/Applications. Re-run after changing them.
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+BUNDLE="$(t3_bundle)"
+ICON="$BUNDLE/Contents/Resources/icon.icns"
+
+make_app() {
+  local name="$1"
+  local label app
+  label="$(instance_label "$name")"
+  app="$(instance_app "$name")"
+
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+
+  cat >"$app/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>$label</string>
+  <key>CFBundleDisplayName</key>
+  <string>$label</string>
+  <key>CFBundleIdentifier</key>
+  <string>codes.t3.instance.$name</string>
+  <key>CFBundleExecutable</key>
+  <string>launch</string>
+  <key>CFBundleIconFile</key>
+  <string>icon</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>11.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+  cat >"$app/Contents/MacOS/launch" <<LAUNCH
+#!/bin/bash
+exec "$BIN_DIR/launch" "$name"
+LAUNCH
+  chmod +x "$app/Contents/MacOS/launch"
+
+  if [ -f "$ICON" ]; then
+    cp "$ICON" "$app/Contents/Resources/icon.icns"
+  fi
+
+  echo "installed $app"
+}
+
+make_app personal
+make_app work
+
+echo ""
+echo "next:"
+echo "  ./bin/seed-trial                     # trial only: copy the live homes"
+echo "  open \"$APPS_DIR/T3 Code Personal.app\""
+echo "  bind raycast/t3-focus.sh to Cmd+1 in Raycast"

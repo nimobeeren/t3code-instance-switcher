@@ -1,0 +1,84 @@
+#!/bin/bash
+# Launch one T3 Code instance, or bring its window to the front when it already
+# runs. This is what the two .app bundles execute.
+#
+# usage: launch <personal|work>
+set -euo pipefail
+
+NAME="${1:-}"
+case "$NAME" in
+  personal | work) ;;
+  *)
+    echo "usage: launch <personal|work>" >&2
+    exit 2
+    ;;
+esac
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+BUNDLE="$(t3_bundle)"
+EXE="$BUNDLE/Contents/MacOS/$(t3_executable "$BUNDLE")"
+SHADOW_HOME="$SHADOW_ROOT/$NAME"
+PIDFILE="$STATE_DIR/$NAME.pid"
+T3CODE_HOME="$(instance_home "$NAME")"
+T3CODE_PORT="$(instance_port "$NAME")"
+
+mkdir -p "$STATE_DIR"
+echo "$NAME" >"$STATE_DIR/last"
+
+# PATH, locale and the rest are inherited as if the user had launched the app
+# directly. Node/Electron harness variables are dropped: ELECTRON_RUN_AS_NODE
+# turns this binary into plain Node, which exits silently instead of opening
+# the app.
+prepare_env() {
+  local var
+  for var in $(compgen -v T3CODE_ 2>/dev/null || true); do
+    case "$var" in
+      T3CODE_HOME | T3CODE_PORT) continue ;;
+    esac
+    unset "$var"
+  done
+  for var in $(compgen -v ELECTRON_ 2>/dev/null || true); do
+    unset "$var"
+  done
+  unset NODE_OPTIONS
+  export HOME="$SHADOW_HOME"
+  export T3CODE_HOME
+  export T3CODE_PORT
+}
+
+if instance_running "$NAME"; then
+  pid="$(instance_pid "$NAME")"
+  # Bring the running instance's window to the front. NSRunningApplication by
+  # pid is precise, and the app's activate handler re-creates a closed window.
+  if focus_pid "$pid"; then
+    exit 0
+  fi
+  # Fallback: relaunch with an identical environment. The primary holds the
+  # single-instance lock, sees the `second-instance` event and reveals its window.
+  # Never touch the pidfile here — this process is not the instance.
+  prepare_env
+  exec "$EXE"
+fi
+
+# Cold start. The shadow home gives this instance its own Electron userData —
+# and therefore its own single-instance lock — while a symlink farm keeps real
+# dotfiles (.ssh, .gitconfig, .config, ...) visible at their usual paths.
+mkdir -p "$SHADOW_HOME/Library"
+shopt -s nullglob dotglob
+for entry in "$REAL_HOME"/*; do
+  base="${entry##*/}"
+  case "$base" in
+    Library) continue ;;
+    .t3 | .t3-*) continue ;;
+  esac
+  if [ ! -e "$SHADOW_HOME/$base" ] && [ ! -L "$SHADOW_HOME/$base" ]; then
+    ln -s "$entry" "$SHADOW_HOME/$base"
+  fi
+done
+shopt -u nullglob dotglob
+
+echo $$ >"$PIDFILE"
+prepare_env
+exec "$EXE"

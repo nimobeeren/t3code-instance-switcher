@@ -1,0 +1,36 @@
+#!/bin/bash
+# Remove what install and seed-trial created. The live T3 homes are never touched.
+#
+# usage: uninstall [--trial]
+#   --trial  also delete the seeded trial homes and the shadow homes
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+for name in personal work; do
+  app="$(instance_app "$name")"
+  if [ -d "$app" ]; then
+    rm -rf "$app"
+    echo "removed $app"
+  fi
+done
+
+if [ "${1:-}" = --trial ]; then
+  # The trial homes live at a fixed path regardless of MODE; the live homes
+  # (~/.t3, ~/.t3-work, ~/.t3-personal) are never candidates here.
+  for name in personal work; do
+    home="$HOME/.t3-trial/$name"
+    if [ -d "$home" ]; then
+      rm -rf "$home"
+      echo "removed $home"
+    fi
+  done
+  rmdir "$HOME/.t3-trial" 2>/dev/null || true
+  if [ -d "$RUNTIME_DIR" ]; then
+    rm -rf "$RUNTIME_DIR"
+    echo "removed $RUNTIME_DIR"
+  fi
+fi
+
+echo "done"

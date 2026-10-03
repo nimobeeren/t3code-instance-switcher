@@ -1,0 +1,82 @@
+#!/bin/bash
+# Copy the live T3 homes into the disposable trial homes. The sources are only
+# ever read; state.sqlite is snapshotted with VACUUM INTO so a live server
+# holding it open is not a problem.
+#
+# usage: seed-trial
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+if [ "$MODE" != trial ]; then
+  echo "seed-trial only applies to MODE=trial (config.sh)" >&2
+  exit 2
+fi
+
+targets=""
+for name in personal work; do
+  source_var="${name}_SEED_SOURCE"
+  source_home="${!source_var}"
+  target_home="$(instance_home "$name")"
+  targets="$targets $name=$source_home=$target_home"
+
+  if [ ! -d "$source_home/userdata" ]; then
+    echo "seed source has no userdata: $source_home" >&2
+    exit 1
+  fi
+  if [ -e "$target_home/userdata" ]; then
+    echo "$target_home already exists — run ./bin/uninstall --trial to start over" >&2
+    exit 1
+  fi
+
+  mkdir -p "$target_home/userdata"
+  for entry in "$source_home/userdata"/* "$source_home/userdata"/.[!.]*; do
+    [ -e "$entry" ] || continue
+    base="${entry##*/}"
+    case "$base" in
+      state.sqlite* | logs) continue ;;
+    esac
+    cp -Rp "$entry" "$target_home/userdata/$base"
+    echo "  $name <- $source_home/userdata/$base"
+  done
+done
+
+REAL_HOME="$REAL_HOME" python3 - $targets <<'PY'
+import json, os, sqlite3, sys
+from pathlib import Path
+
+real_home = os.environ["REAL_HOME"]
+homes = [arg.split("=", 2) for arg in sys.argv[1:]]
+
+for name, source_home, target_home in homes:
+    userdata = Path(target_home) / "userdata"
+    source = Path(source_home) / "userdata/state.sqlite"
+    if source.exists():
+        target = userdata / "state.sqlite"
+        escaped = str(target).replace("'", "''")
+        con = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        con.execute(f"VACUUM INTO '{escaped}'")
+        con.close()
+        print(f"  {name}: state.sqlite snapshotted")
+
+    settings = userdata / "settings.json"
+    if settings.exists():
+        data = json.loads(settings.read_text())
+        instances = data.setdefault("providerInstances", {})
+        changed = False
+        for instance in instances.values():
+            env = instance.setdefault("environment", [])
+            if any(e.get("name") == "HOME" for e in env):
+                continue
+            env.append({"name": "HOME", "value": real_home, "sensitive": False})
+            changed = True
+        if changed:
+            settings.write_text(json.dumps(data, indent=2) + "\n")
+            print(f"  {name}: provider env HOME -> {real_home}")
+PY
+
+echo ""
+echo "seeded. open the apps:"
+echo "  open \"$APPS_DIR/T3 Code Personal.app\""
+echo "  open \"$APPS_DIR/T3 Code Work.app\""
