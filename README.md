@@ -75,7 +75,7 @@ Separate per instance:
 
 - Nothing running: starts all of them.
 - One running: focuses it.
-- Several running: switches away from the instance you are in, or from the one that owns the frontmost window, and goes to the most recently used of the others. When none of yours is in the way it goes to the most recently used one overall, then to the one you last focused here.
+- Several running: switches away from the instance you are in when you are in one of them, and otherwise goes to the most recently used one overall, then to the one you last focused here.
 
 "Most recently used" is read from the window order at the moment you press, so clicks, Cmd-Tab and the switcher itself keep it right without recording anything along the way. The switcher prints the name of the instance it picked. `./bin/t3-focus --dry-run` prints the same name without activating anything.
 
