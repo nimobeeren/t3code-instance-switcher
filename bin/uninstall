@@ -1,13 +1,12 @@
 #!/bin/bash
-# Remove what install and seed-trial created. The live T3 homes are never touched.
+# Remove what install created, and optionally the runtime data under
+# ~/.local/share/t3-instances. Instance data directories are never touched.
 #
-# usage: uninstall [--apps] [--trial] [--runtime]
+# usage: uninstall [--apps] [--runtime]
 #   no flags   same as --apps
-#   --apps     delete the two launcher apps
-#   --trial    delete the seeded trial homes
-#   --runtime  delete the shadow homes and the state dir; only ever safe when
-#              no instance runs, and wrong in MODE=daily where the shadow homes
-#              belong to the instances themselves
+#   --apps     delete the launcher apps
+#   --runtime  delete the shadow homes and the state dir; only safe when no
+#              instance is running, and it throws away each instance's UI state
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -18,16 +17,16 @@ remove_apps=false
 for arg in "$@"; do
   case "$arg" in
     --apps) remove_apps=true ;;
-    --trial | --runtime) ;;
+    --runtime) ;;
     *)
-      echo "usage: uninstall [--apps] [--trial] [--runtime]" >&2
+      echo "usage: uninstall [--apps] [--runtime]" >&2
       exit 2
       ;;
   esac
 done
 
 if $remove_apps; then
-  for name in personal work; do
+  for name in "${INSTANCES[@]}"; do
     app="$(instance_app "$name")"
     if [ -d "$app" ]; then
       rm -rf "$app"
@@ -36,24 +35,11 @@ if $remove_apps; then
   done
 fi
 
-if [ "${1:-}" = --trial ] || [ "${2:-}" = --trial ]; then
-  # The trial homes live at a fixed path regardless of MODE; the live homes
-  # (~/.t3, ~/.t3-work, ~/.t3-personal) are never candidates here.
-  for name in personal work; do
-    home="$HOME/.t3-trial/$name"
-    if [ -d "$home" ]; then
-      rm -rf "$home"
-      echo "removed $home"
-    fi
-  done
-  rmdir "$HOME/.t3-trial" 2>/dev/null || true
-fi
-
-if [ "${1:-}" = --runtime ] || [ "${2:-}" = --runtime ]; then
-  if [ -d "$RUNTIME_DIR" ]; then
+for arg in "$@"; do
+  if [ "$arg" = --runtime ] && [ -d "$RUNTIME_DIR" ]; then
     rm -rf "$RUNTIME_DIR"
     echo "removed $RUNTIME_DIR"
   fi
-fi
+done
 
 echo "done"

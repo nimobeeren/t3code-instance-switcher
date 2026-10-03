@@ -1,19 +1,20 @@
-// focus — pick one of the two T3 Code instances and bring it forward.
+// focus — bring one of the T3 Code instances forward.
 //
 // usage: focus [--helper] [--dry-run]
 //   (no flag)  focus one instance, print its name, exit 0
 //   --helper   serve focusing over $T3_FOCUS_STATE_DIR/focus.sock and stay warm
 //   --dry-run  print the instance that would be focused, activate nothing
 //
-// The caller (raycast/t3-focus.sh) exports T3_FOCUS_STATE_DIR, T3_FOCUS_APP_PERSONAL,
-// T3_FOCUS_APP_WORK and T3_FOCUS_EXEC from config.sh. Which instance goes
-// forward is, in order: the only running one; the other one when one of them is
-// the focused application; the other one when one of them owns the frontmost
-// window; the one used most recently; and finally the last instance focused
-// here. Window order comes from the window server, so the most recently used
-// instance stays correct after clicks, Cmd-Tab and our own focusing — nothing
-// to record along the way. A window that is closed, minimized or on another
-// Space is not in the list, which leaves that instance out of the running.
+// The caller (bin/t3-focus) exports T3_FOCUS_STATE_DIR, T3_FOCUS_EXEC and
+// T3_FOCUS_INSTANCES, a comma-separated list of name=/path/to/App.app pairs
+// taken from config.sh. Which instance goes forward is, in order: the only
+// running one; when one of them is the focused application or owns the
+// frontmost window, the most recently used one that is not it; otherwise the
+// most recently used one, then the last one focused here. Window order comes
+// from the window server, so the most recently used instance stays correct
+// after clicks, Cmd-Tab and our own focusing, with nothing to record along the
+// way. A window that is closed, minimized or on another Space is not in the
+// list.
 //
 // An instance is running when its pid file names a live process of the shared
 // T3 Code binary (checked with proc_pidpath, not ps): helper and backend
@@ -43,9 +44,9 @@
 
 extern char **environ;
 
+static NSArray<NSString *> *InstanceNames;
+static NSArray<NSString *> *AppPaths;
 static NSString *StateDir;
-static NSString *AppPersonal;
-static NSString *AppWork;
 static NSString *ExecPath;
 
 static void Die(const char *message) {
@@ -55,28 +56,42 @@ static void Die(const char *message) {
 
 static void LoadConfig(void) {
   NSDictionary *env = [[NSProcessInfo processInfo] environment];
-  NSDictionary *values = @{
-    @"T3_FOCUS_STATE_DIR" : env[@"T3_FOCUS_STATE_DIR"] ?: @"",
-    @"T3_FOCUS_APP_PERSONAL" : env[@"T3_FOCUS_APP_PERSONAL"] ?: @"",
-    @"T3_FOCUS_APP_WORK" : env[@"T3_FOCUS_APP_WORK"] ?: @"",
-    @"T3_FOCUS_EXEC" : env[@"T3_FOCUS_EXEC"] ?: @"",
-  };
-  NSFileManager *fm = [NSFileManager defaultManager];
-  for (NSString *key in values) {
-    if ([values[key] length] == 0) {
-      Die("missing environment; run through raycast/t3-focus.sh");
+  NSString *stateDir = env[@"T3_FOCUS_STATE_DIR"] ?: @"";
+  NSString *execPath = env[@"T3_FOCUS_EXEC"] ?: @"";
+  NSString *instances = env[@"T3_FOCUS_INSTANCES"] ?: @"";
+  if (stateDir.length == 0 || execPath.length == 0 || instances.length == 0) {
+    Die("missing environment; run through bin/t3-focus");
+  }
+
+  NSMutableArray<NSString *> *names = [NSMutableArray array];
+  NSMutableArray<NSString *> *apps = [NSMutableArray array];
+  for (NSString *pair in [instances componentsSeparatedByString:@","]) {
+    NSRange split = [pair rangeOfString:@"="];
+    if (split.location == NSNotFound || split.location == 0 ||
+        split.location == pair.length - 1) {
+      Die("bad T3_FOCUS_INSTANCES entry, expected name=/path/to/App.app");
     }
-    // The apps and the shared binary must exist; the state dir is created below.
-    if (![key isEqualToString:@"T3_FOCUS_STATE_DIR"] && ![fm fileExistsAtPath:values[key]]) {
-      fprintf(stderr, "focus: %s does not exist: %s\n", key.UTF8String,
-              [values[key] UTF8String]);
+    [names addObject:[pair substringToIndex:split.location]];
+    [apps addObject:[pair substringFromIndex:split.location + 1]];
+  }
+
+  // The apps and the shared binary must exist; the state dir is created below.
+  NSFileManager *fm = [NSFileManager defaultManager];
+  if (![fm fileExistsAtPath:execPath]) {
+    fprintf(stderr, "focus: T3_FOCUS_EXEC does not exist: %s\n", execPath.UTF8String);
+    exit(2);
+  }
+  for (NSString *app in apps) {
+    if (![fm fileExistsAtPath:app]) {
+      fprintf(stderr, "focus: app does not exist: %s\n", app.UTF8String);
       exit(2);
     }
   }
-  StateDir = values[@"T3_FOCUS_STATE_DIR"];
-  AppPersonal = values[@"T3_FOCUS_APP_PERSONAL"];
-  AppWork = values[@"T3_FOCUS_APP_WORK"];
-  ExecPath = values[@"T3_FOCUS_EXEC"];
+
+  InstanceNames = names;
+  AppPaths = apps;
+  StateDir = stateDir;
+  ExecPath = execPath;
   [fm createDirectoryAtPath:StateDir withIntermediateDirectories:YES attributes:nil error:NULL];
 }
 
@@ -102,7 +117,7 @@ static NSString *ReadLast(void) {
   NSString *path = [StateDir stringByAppendingPathComponent:@"last"];
   NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
   NSString *value = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-  return [value isEqualToString:@"personal"] || [value isEqualToString:@"work"] ? value : @"personal";
+  return value && [InstanceNames containsObject:value] ? value : InstanceNames.firstObject;
 }
 
 static void WriteLast(NSString *name) {
@@ -167,58 +182,96 @@ static void OpenApps(NSArray<NSString *> *paths) {
 
 #pragma mark - decision
 
-// Returns the name of the instance to bring forward and records it as the last
-// one focused here. With dryRun it only decides.
-static NSString *DoWork(BOOL dryRun) {
-  pid_t pids[2] = {ReadPid(@"personal"), ReadPid(@"work")};
-  BOOL up[2] = {InstanceIsRunning(pids[0]), InstanceIsRunning(pids[1])};
-  NSArray<NSString *> *names = @[@"personal", @"work"];
-
-  if (!up[0] && !up[1]) {
-    if (!dryRun) {
-      WriteLast(@"personal");
-      OpenApps(@[AppPersonal, AppWork]);
-    }
-    return @"personal";
+// Index of the instance whose main process is pid, or -1.
+static NSInteger IndexOfPid(NSArray<NSNumber *> *pids, pid_t pid) {
+  for (NSUInteger i = 0; i < pids.count; i++) {
+    if (pids[i].intValue == pid) return (NSInteger)i;
   }
+  return -1;
+}
 
+// Most recently used running instance other than `away` (-1 for none), ranked
+// by the window order front to back. A closed, minimized or off-Space window is
+// not in that order, so such an instance is picked only after `fallbackName`
+// and the remaining running ones in configuration order.
+static NSInteger RankedTarget(NSArray<NSNumber *> *pids, NSArray<NSNumber *> *up,
+                              NSInteger away, NSString *fallbackName) {
   NSInteger target = -1;
-  if (up[0] != up[1]) {
-    target = up[0] ? 0 : 1;
-  } else {
-    // Switch away from the instance the user is in: the focused application
-    // when it is one of ours, else the owner of the frontmost window. The rest
-    // of the window order ranks "most recently used".
-    pid_t focused = FocusedPid();
-    NSArray<NSNumber *> *order;
-    if (focused == pids[0] || focused == pids[1]) {
-      order = @[@(focused)];
-    } else {
-      order = WindowOwnerPids();
+  for (NSNumber *pid in WindowOwnerPids()) {
+    NSInteger index = IndexOfPid(pids, pid.intValue);
+    if (index >= 0 && index != away && up[index].boolValue) {
+      target = index;
+      break;
     }
-    NSNumber *away = nil;
-    for (NSNumber *pid in order) {
-      if (pid.intValue == pids[0]) { away = @0; break; }
-      if (pid.intValue == pids[1]) { away = @1; break; }
+  }
+  if (target < 0) {
+    NSUInteger last = [InstanceNames indexOfObject:fallbackName];
+    if (last != NSNotFound && (NSInteger)last != away && up[last].boolValue) {
+      target = (NSInteger)last;
     }
-    if (away) {
-      target = 1 - away.integerValue;
-    } else {
-      NSString *last = ReadLast();
-      if ([last isEqualToString:@"work"] && up[1]) {
-        target = 1;
-      } else if ([last isEqualToString:@"personal"] && up[0]) {
-        target = 0;
-      } else {
-        target = up[0] ? 0 : 1;
+  }
+  if (target < 0) {
+    for (NSUInteger i = 0; i < pids.count; i++) {
+      if ((NSInteger)i != away && up[i].boolValue) {
+        target = (NSInteger)i;
+        break;
       }
     }
   }
+  return target;
+}
 
-  NSString *name = names[target];
+// Returns the name of the instance to bring forward and records it as the last
+// one focused here. With dryRun it only decides.
+static NSString *DoWork(BOOL dryRun) {
+  NSMutableArray<NSNumber *> *pids = [NSMutableArray array];
+  NSMutableArray<NSNumber *> *up = [NSMutableArray array];
+  NSInteger running = 0;
+  for (NSString *name in InstanceNames) {
+    pid_t pid = ReadPid(name);
+    BOOL isUp = InstanceIsRunning(pid);
+    [pids addObject:@(pid)];
+    [up addObject:@(isUp)];
+    if (isUp) running++;
+  }
+
+  if (running == 0) {
+    if (!dryRun) {
+      WriteLast(InstanceNames.firstObject);
+      OpenApps(AppPaths);
+    }
+    return InstanceNames.firstObject;
+  }
+
+  NSInteger target = -1;
+  if (running == 1) {
+    for (NSUInteger i = 0; i < up.count; i++) {
+      if (up[i].boolValue) {
+        target = (NSInteger)i;
+        break;
+      }
+    }
+  } else {
+    // Switch away from the instance the user is in: the focused application
+    // when it is one of ours, else the owner of the frontmost of our windows.
+    NSInteger away = IndexOfPid(pids, FocusedPid());
+    if (away < 0 || !up[away].boolValue) {
+      away = -1;
+      for (NSNumber *pid in WindowOwnerPids()) {
+        NSInteger index = IndexOfPid(pids, pid.intValue);
+        if (index >= 0 && up[index].boolValue) {
+          away = index;
+          break;
+        }
+      }
+    }
+    target = RankedTarget(pids, up, away, ReadLast());
+  }
+
+  NSString *name = InstanceNames[target];
   if (!dryRun) {
-    if (!Activate(pids[target])) {
-      OpenApps(@[target == 0 ? AppPersonal : AppWork]);
+    if (!Activate(pids[target].intValue)) {
+      OpenApps(@[AppPaths[target]]);
     }
     WriteLast(name);
   }

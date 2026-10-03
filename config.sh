@@ -1,10 +1,17 @@
-# Shared configuration for the two T3 Code desktop instances.
-# Sourced by every script in bin/; never executed on its own.
-#
-# MODE=trial  disposable data copies on free ports, live setup untouched
-# MODE=daily  the cutover layout: ~/.t3-personal and ~/.t3-work on 3773/3774
+# Shared configuration for the T3 Code instances. Sourced by every script in
+# bin/; never executed on its own.
 
-MODE=daily
+# The instances to run. Keep names to lowercase letters, digits and dashes:
+# they name the launcher apps, the pid files and the switcher's output.
+INSTANCES=(personal work)
+
+# Per instance: the data directory it owns (T3CODE_HOME, holding projects,
+# threads, settings and secrets) and the port of its embedded server
+# (T3CODE_PORT). Both must be unique per instance.
+personal_T3CODE_HOME="$HOME/.t3-personal"
+personal_T3CODE_PORT=3773
+work_T3CODE_HOME="$HOME/.t3-work"
+work_T3CODE_PORT=3774
 
 REAL_HOME="$HOME"
 RUNTIME_DIR="$HOME/.local/share/t3-instances"
@@ -12,27 +19,26 @@ SHADOW_ROOT="$RUNTIME_DIR/homes"
 STATE_DIR="$RUNTIME_DIR/state"
 APPS_DIR="$HOME/Applications"
 
-# Live homes the trial copies are seeded from. Read-only sources.
-personal_SEED_SOURCE="$HOME/.t3"
-work_SEED_SOURCE="$HOME/.t3-work"
+for instance in "${INSTANCES[@]}"; do
+  case "$instance" in
+    "" | *[!a-z0-9-]*)
+      echo "config.sh: instance name '$instance' must match [a-z0-9-]*" >&2
+      return 1 2>/dev/null || exit 1
+      ;;
+  esac
+done
 
-if [ "$MODE" = trial ]; then
-  personal_T3CODE_HOME="$HOME/.t3-trial/personal"
-  personal_T3CODE_PORT=3783
-  work_T3CODE_HOME="$HOME/.t3-trial/work"
-  work_T3CODE_PORT=3784
-else
-  personal_T3CODE_HOME="$HOME/.t3-personal"
-  personal_T3CODE_PORT=3773
-  work_T3CODE_HOME="$HOME/.t3-work"
-  work_T3CODE_PORT=3774
-fi
+known_instance() {
+  local name
+  for name in "${INSTANCES[@]}"; do
+    [ "$name" = "$1" ] && return 0
+  done
+  return 1
+}
 
 instance_label() {
-  case "$1" in
-    personal) echo "T3 Code Personal" ;;
-    work) echo "T3 Code Work" ;;
-  esac
+  printf 'T3 Code %s%s\n' \
+    "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]')" "${1:1}"
 }
 
 instance_app() {
@@ -49,8 +55,8 @@ instance_port() {
   echo "${!var}"
 }
 
-# The shared T3 Code install. Both instances run this one binary so a single
-# auto-update covers both and safeStorage keeps its keychain identity.
+# The shared T3 Code install. All instances run this one binary so a single
+# auto-update covers all of them and safeStorage keeps its keychain identity.
 t3_bundle() {
   local candidate
   for candidate in "/Applications/T3 Code (Alpha).app" "/Applications/T3 Code.app" "/Applications/T3 Code (Nightly).app"; do
@@ -76,8 +82,8 @@ t3_executable() {
 
 # A pid file holds the instance's main process: written just before `exec`, so
 # the pid survives into the Electron app. Backend and helper processes have
-# other pids and NSRunningApplication cannot activate them — matching those is
-# what makes a "focus" silently do nothing.
+# other pids and NSRunningApplication cannot activate them, so matching those
+# is what makes a focus silently do nothing.
 instance_pid() {
   local file="$STATE_DIR/$1.pid"
   [ -s "$file" ] || return 0

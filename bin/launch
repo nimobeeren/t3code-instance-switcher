@@ -1,21 +1,18 @@
 #!/bin/bash
 # Launch one T3 Code instance, or bring its window to the front when it already
-# runs. This is what the two .app bundles execute.
+# runs. This is what the launcher .app bundles execute.
 #
-# usage: launch <personal|work>
+# usage: launch <name>
 set -euo pipefail
-
-NAME="${1:-}"
-case "$NAME" in
-  personal | work) ;;
-  *)
-    echo "usage: launch <personal|work>" >&2
-    exit 2
-    ;;
-esac
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$BIN_DIR/../config.sh"
+
+NAME="${1:-}"
+if [ -z "$NAME" ] || ! known_instance "$NAME"; then
+  echo "usage: launch <name>  (${INSTANCES[*]})" >&2
+  exit 2
+fi
 
 BUNDLE="$(t3_bundle)"
 EXE="$BUNDLE/Contents/MacOS/$(t3_executable "$BUNDLE")"
@@ -73,10 +70,16 @@ fi
 shopt -s nullglob dotglob
 for entry in "$REAL_HOME"/*; do
   base="${entry##*/}"
-  case "$base" in
-    Library) continue ;;
-    .t3 | .t3-*) continue ;;
-  esac
+  [ "$base" = Library ] && continue
+  # Instance data directories stay out of the shadow home.
+  skip=false
+  for other in "${INSTANCES[@]}"; do
+    if [ "$entry" = "$(instance_home "$other")" ]; then
+      skip=true
+      break
+    fi
+  done
+  $skip && continue
   if [ ! -e "$SHADOW_HOME/$base" ] && [ ! -L "$SHADOW_HOME/$base" ]; then
     ln -s "$entry" "$SHADOW_HOME/$base"
   fi

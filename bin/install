@@ -1,5 +1,6 @@
 #!/bin/bash
-# Write the two launcher apps into ~/Applications. Re-run after changing them.
+# Write one launcher app per instance into ~/Applications. Re-run after
+# changing config.sh or the launchers.
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,15 +62,11 @@ LAUNCH
   echo "installed $app"
 }
 
-make_app personal
-make_app work
+for name in "${INSTANCES[@]}"; do
+  make_app "$name"
+done
 
 echo ""
 echo "next:"
-if [ "$MODE" = trial ]; then
-  echo "  ./bin/seed-trial                     # trial only: copy the live homes"
-else
-  echo "  ./bin/seed-ui                        # carry the current T3 Code's settings in"
-fi
-echo "  open \"$APPS_DIR/T3 Code Personal.app\""
-echo "  bind raycast/t3-focus.sh to Cmd+1 in Raycast"
+echo "  open \"$(instance_app "${INSTANCES[0]}")\""
+echo "  bind $BIN_DIR/t3-focus to a hotkey in your launcher"

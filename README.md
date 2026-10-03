@@ -1,83 +1,93 @@
 # T3 Code instances
 
-Two separate T3 Code desktop instances on this Mac — **personal** and **work** — each with its own projects, threads, providers, secrets and connection catalog. Each one starts from its own app in `~/Applications`, and Raycast Cmd+1 focuses whichever is running.
+Run several T3 Code desktop instances on one Mac at the same time, each with its own projects, threads, providers and secrets. One hotkey switches between them.
 
-## How it works
+The point of this repo is the switching. T3 Code itself only knows how to run one copy, so this adds a launcher per instance and a switcher that knows which instance to bring forward when you press the hotkey.
 
-Both instances are the real `T3 Code (Alpha).app` binary (one shared install, one auto-update, one keychain identity) started with different `T3CODE_HOME` and `T3CODE_PORT`. Because Electron scopes its single-instance lock to its userData directory, which the app derives from `os.homedir()`, each instance also gets its own shadow `HOME` under `~/.local/share/t3-instances/homes/<name>`: a real `Library/` that owns userData and the lock, plus a symlink farm of every other top-level entry of the real home so git, ssh and dotfiles resolve as usual. Provider subprocesses additionally get `HOME=/Users/nimo.beeren` in their provider env (seeded into `settings.json`) so agent work never lands in a shadow home.
+## Prerequisites
 
-```
-~/Applications/T3 Code Personal.app    launcher -> bin/launch personal
-~/Applications/T3 Code Work.app        launcher -> bin/launch work
-~/.local/share/t3-instances/homes/     shadow HOME per instance
-~/.local/share/t3-instances/state/     main-process pids, last touched
-```
+Everything here is macOS. The launchers and the switcher use AppKit and the window server, so none of it runs on Linux or Windows.
 
-Opening an app focuses that instance when it already runs, and starts it otherwise. The focus targets the instance's main process by pid; helper and backend processes cannot be activated, which is why a pid recorded at `exec` time is the reliable handle.
+You need:
+
+- T3 Code installed in `/Applications`, any of the usual bundles. The scripts look for `T3 Code (Alpha).app`, `T3 Code.app` and `T3 Code (Nightly).app`.
+- Xcode Command Line Tools, to compile the switcher: `xcode-select --install`
+
+And you need to know two things about how T3 Code stores its state, because that is all an "instance" is:
+
+- It keeps everything it owns in one directory, named by `T3CODE_HOME`. Run the standard way, that is `~/.t3`. Projects, threads, settings, secrets, caches, all of it.
+- It runs one embedded server, on the port named by `T3CODE_PORT`.
+
+Two instances are therefore just two of those directories on two ports. The one complication is that the desktop app allows only one running copy per Electron user data directory, and macOS derives that from your home directory. So each instance runs with its own home directory. That is not a second account and not a copy of your files. It is a small directory that holds the app's own user data, with everything else in your real home symlinked in at the same paths, so git, ssh, your dotfiles and your code resolve exactly as they do today.
+
+## Setup from a standard single instance
+
+If you run T3 Code the normal way today, you have one instance and its data lives in `~/.t3`.
+
+1. Quit T3 Code.
+2. Edit `config.sh`. Pick a name, a data directory and a port per instance. Names are lowercase letters, digits and dashes. Ports must be unique per instance.
+
+   ```sh
+   INSTANCES=(personal work)
+
+   personal_T3CODE_HOME="$HOME/.t3-personal"
+   personal_T3CODE_PORT=3773
+   work_T3CODE_HOME="$HOME/.t3-work"
+   work_T3CODE_PORT=3774
+   ```
+
+3. Give each instance its data. Move the directory you already have to the instance that should keep it: `mv ~/.t3 ~/.t3-personal`. The other instances start with no data directory and fill theirs in on first launch. Copy instead of move if you want a backup.
+4. Run `./bin/install`. It compiles the switcher and writes one launcher app per instance into `~/Applications`.
+5. Open the launcher apps. Each instance creates its own data directory contents on first run.
+6. Point providers at your real home. The app runs with the instance home as `HOME`, and provider processes inherit it, so add `HOME` set to your real home directory in each provider's environment in the instance's `settings.json`. Otherwise new files that agent work creates at `~/something` land in the instance home instead of your real one.
+7. Optionally give each instance its own theme, which is the easiest way to tell the windows apart: `npx t3@latest theme set --base-dir <data directory> <theme>`.
+8. Bind `bin/t3-focus` to a hotkey. Any launcher that can run a script on a hotkey works: Raycast, Alfred, Shortcuts, Keyboard Maestro, Hammerspoon.
+
+`./bin/status` shows what is configured and what is running.
 
 ## What is shared and what is separate
 
-One copy, used by both instances:
+Shared by every instance:
 
-- **The T3 Code app.** Both instances launch the same bundle in `/Applications`, so one install and one auto-update cover both, and both keep the same keychain identity (`safeStorage`). Each instance's `userdata/secrets` is its own file, but that shared identity means either instance could decrypt the other's.
-- **The real home.** Each shadow home is a symlink farm of the real home's top-level entries, so `.ssh`, `.gitconfig`, `.config`, `~/Development`, fnm/node and the rest resolve at their usual paths. Dotfiles added later show up in an instance after its next launch.
-- **OpenCode assets.** `~/.config/opencode/{agents,commands,skills}` and `~/.agents/skills` serve both profiles.
-- **macOS.** One user session, one keychain, one Raycast script. Each shadow home's `Library/Keychains` links to the real home's keychains so macOS can find the login keychain and the shared `t3code Key`.
+- The T3 Code app in `/Applications`. One install, one auto-update, one keychain identity (`safeStorage`). Each instance stores its own secrets file, but the shared identity means one instance could decrypt another's.
+- Your real home directory. Each instance home symlinks it in, so `.ssh`, `.gitconfig`, `.config` and your code are at their usual paths. Top level files and directories added later appear in an instance after its next start.
+- OpenCode config and skills under `~/.config/opencode` and `~/.agents`.
 
-One copy per instance:
+Separate per instance:
 
-- **`T3CODE_HOME`.** Projects, threads (`state.sqlite`), provider instances and model selection (`settings.json`), UI settings (`client-settings.json`), window state and server exposure (`desktop-settings.json`), `keybindings.json`, `userdata/secrets`, the connection catalog, published `themes/`, logs, caches, worktrees.
-- **The server.** Each app embeds its own on its own port: `3773` personal, `3774` work.
-- **The shadow HOME.** Its own Electron user data and single-instance lock. UI state that lives in localStorage — theme selection, layout, drafts — is per instance too; `bin/seed-ui` carries it over from the current T3 Code once, and the instances diverge from there.
-- **The OpenCode profile.** Config and session database: personal runs `opencode.personal.jsonc` against `opencode.personal.db`, work runs `opencode.work.jsonc` against `opencode.work.db`.
-- **The theme.** Set per environment and picked up by whatever client connects: personal is Iris (purple), work is Yew (`themes/yew.json`, the built-in Grove palette as `appearance: dark`, so it is dark green whatever the system appearance is). `npx t3@latest theme show --base-dir <home>` reads it, `theme set`/`theme clear` change it.
-- **The connection catalog.** Each instance pairs its own environments; the devbox personal pairing lives in personal, the devbox work pairing in work.
-- **T3 account sign-in.** `clerk-tokens.json` is seeded per instance by `bin/seed-ui` and then independent.
+- `T3CODE_HOME`: projects, threads (`state.sqlite`), `settings.json`, client and desktop settings, keybindings, `userdata/secrets`, logs, caches, worktrees.
+- The embedded server, on its own port.
+- The instance home: the app's own user data, so theme, layout, drafts and window state differ too.
+- The OpenCode profile the instance runs, config and session database included.
+- Theme and account sign-in state.
 
-## Try it (trial)
+## Layout
 
-Trial data is a disposable copy of the live homes, on ports `3783`/`3784`, so the current setup keeps running untouched.
-
-```sh
-cd ~/Development/t3-instances
-./bin/install          # writes both apps into ~/Applications
-./bin/seed-trial       # copies ~/.t3 and ~/.t3-work into ~/.t3-trial (sources read-only)
-open ~/Applications/T3\ Code\ Personal.app
-open ~/Applications/T3\ Code\ Work.app
-./bin/status
+```
+~/Applications/T3 Code <Name>.app    launcher app, runs bin/launch <name>
+~/.local/share/t3-instances/homes/   one instance home per instance
+~/.local/share/t3-instances/state/   main-process pids, last focused instance
 ```
 
-Bind `raycast/t3-focus.sh` to Cmd+1: in Raycast, Settings → Extensions → Script Commands → add the `raycast/` directory here, search "T3 Code Focus", then assign the hotkey. Cmd+1 starts both when none runs, focuses the running one when only one does, and with both running switches to the other one when one of them is already focused — or owns the frontmost window — and otherwise it goes to the one you used most recently, read from window order at press time (`bin/focus.py`).
+## Switching
 
-`seed-trial` snapshots each live `state.sqlite` with `VACUUM INTO` and copies the rest of `userdata`, including `settings.json`, `secrets` and the connection catalog, so providers carry over. `bin/seed-ui` then brings over what does not live in `userdata`: the client settings files a server-only home lacks, `HOME` for provider subprocesses, and the UI state (theme among it) from the current T3 Code's Electron user data. If a provider key does not decrypt in the trial, re-enter it once. The trial's agents share the live OpenCode session databases (`OPENCODE_DB`), so avoid running turns in a live instance and its trial copy at the same moment.
+`bin/t3-focus` picks which instance to bring forward:
 
-To start over: `./bin/uninstall --trial && ./bin/seed-trial`.
+- Nothing running: starts all of them.
+- One running: focuses it.
+- Several running: switches away from the instance you are in, or from the one that owns the frontmost window, and goes to the most recently used of the others. When none of yours is in the way it goes to the most recently used one overall, then to the one you last focused here.
 
-## Cutover
+"Most recently used" is read from the window order at the moment you press, so clicks, Cmd-Tab and the switcher itself keep it right without recording anything along the way. The switcher prints the name of the instance it picked. `./bin/t3-focus --dry-run` prints the same name without activating anything.
 
-Daily layout: `~/.t3-personal` (moved from `~/.t3`) and `~/.t3-work`, ports `3773`/`3774`, both shadow homes. Work keeps its home and port — only who runs the server changes.
+Each launcher app is the plain version of this for one instance: it starts that instance or focuses it when it already runs.
 
-Run `./bin/cutover` from Terminal — not from inside T3 Code, because it quits the app. It performs steps 1–5 and the relaunch in step 8 as one sequence, and prints the devbox work pairing URL for step 6. The steps below are what it does, in order.
+## Gotchas
 
-1. Quit both trial instances and the current T3 Code. Stop the work service: `launchctl bootout gui/$(id -u)/com.t3tools.t3code.service` (keep the plist for rollback).
-2. Disable T3 Code's own login item in System Settings, otherwise it recreates `~/.t3`.
-3. `lsof +D ~/.t3` — nothing may hold it. Then `mv ~/.t3 ~/.t3-personal` and `./bin/repair-paths ~/.t3-personal ~/.t3` (thread rows and git worktree links still point into `~/.t3`).
-4. Set `MODE=daily` in `config.sh`, then `./bin/install` and `./bin/seed-ui` (carries the current T3 Code's UI state and client settings into both homes).
-5. Set the themes: `npx t3@latest theme set --base-dir ~/.t3-personal iris` and `npx t3@latest theme set --base-dir ~/.t3-work themes/yew.json`.
-6. Personal instance: Settings → Connections → remove the work-side entries (MAC0133 work, devbox work). Work instance: pair devbox work with `ssh devbox '~/.local/bin/t3 pair --base-dir ~/.t3-work --label devbox-work'` and paste it under Settings → Connections. The devbox personal pairing lives in the personal catalog and survives the rename.
-7. Rebind Cmd+1 to `raycast/t3-focus.sh` if Raycast was pointing at the old tooling.
-8. Relaunch both apps, then verify a turn in each, `curl http://100.109.52.7:3773/.well-known/t3/environment` and `:3774`, and `./bin/status`.
-9. `./bin/uninstall --trial` and update `~/.claude/skills/agent-setup/SKILL.md` (environments table, Mac startup, connection catalog).
+- `t3code://` links reach one running instance and which one is up to LaunchServices, so start OAuth and similar flows in the instance you are using.
+- Launching T3 Code from Spotlight or `open -a "T3 Code"` bypasses the launchers and starts a stock instance with the default data directory. Use the launcher apps or the hotkey.
+- The first read of secrets and account tokens waits for macOS to authorize the app's keychain entry. Allow the dialog once and later reads are instant.
+- Paths inside the app can show the instance home instead of your real home, since the app reports `os.homedir()`. The contents are the same through the symlinks.
 
-## Rollback
+## Removing
 
-`mv ~/.t3-personal ~/.t3` and `./bin/repair-paths ~/.t3 ~/.t3-personal`, re-enable the launchd service and the T3 Code login item, set `MODE=trial` back if you want the trial apps again. The environment themes stay in the homes' `settings.json` until `npx t3@latest theme clear --base-dir <home>` removes them; nothing else is modified.
-
-## Quirks
-
-- **First decrypt can stall for a while.** Each instance's first read of the connection catalog and Clerk tokens waits on macOS authorizing T3 Code's keychain entry; allow the dialog if one appears. Later reads are instant.
-- **Dock tiles show "T3 Code (Alpha)".** The launcher execs the real binary, so the tile comes from the shared bundle; two running instances mean two identical tiles. Distinguish them by window content or per-instance theme.
-- **A stray `open -a "T3 Code (Alpha)"` launches a stock instance** with `T3CODE_HOME=~/.t3` and a scanned port. Launch from the two apps; `./bin/status` shows what runs.
-- **`t3code://` links reach one instance.** With both running, OAuth handoffs may land in the other one — start those flows in the instance you are using.
-- **Working directories may show the shadow-home path** (`os.homedir()`). Cosmetic; the farm makes the contents identical to the real home.
-- **New dotfiles appear in an instance after its next launch.** The farm is rebuilt when an app starts.
+`./bin/uninstall` removes the launcher apps. `./bin/uninstall --runtime` also removes the instance homes and their state, UI state included. The data directories named by `T3CODE_HOME` are never touched.

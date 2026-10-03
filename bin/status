@@ -1,5 +1,5 @@
 #!/bin/bash
-# What the two instances are and whether they run.
+# What the instances are and whether they run.
 #
 # usage: status
 set -euo pipefail
@@ -7,8 +7,7 @@ set -euo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$BIN_DIR/../config.sh"
 
-echo "mode: $MODE"
-for name in personal work; do
+for name in "${INSTANCES[@]}"; do
   state="stopped"
   if instance_running "$name"; then
     state="running (pid $(instance_pid "$name"))"
@@ -17,9 +16,10 @@ for name in personal work; do
   if [ -d "$(instance_app "$name")" ]; then
     app="app installed"
   fi
-  printf '%-9s %-8s port %-5s %s  %s  %s\n' \
-    "$name" "$state" "$(instance_port "$name")" "$app" \
-    "$(instance_home "$name")" \
-    "$([ -d "$(instance_home "$name")/userdata" ] && echo seeded || echo not-seeded)"
+  home="$(instance_home "$name")"
+  data="no data"
+  [ -d "$home" ] && data="data present"
+  printf '%-12s %-22s port %-5s %-12s %-12s %s\n' \
+    "$name" "$state" "$(instance_port "$name")" "$app" "$data" "$home"
 done
 echo "last touched: $(cat "$STATE_DIR/last" 2>/dev/null || echo -)"

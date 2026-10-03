@@ -1,3 +1,30 @@
 #!/bin/bash
-# Terminal entry point; the Raycast command lives in ../raycast/t3-focus.sh.
-exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../raycast/t3-focus.sh" "$@"
+# Switch between the T3 Code instances. Bind this to a hotkey in whatever
+# launcher you use (Raycast, Alfred, Shortcuts, Keyboard Maestro, Hammerspoon),
+# or run it from a terminal.
+#
+# With no instance running it starts them all. With one running it focuses it.
+# With several running it switches away from the instance you are in, or that
+# owns the frontmost window, and otherwise goes to the one you used most
+# recently. Prints the name of the instance it brought forward. With --dry-run
+# it only prints the one it would pick.
+set -euo pipefail
+
+BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$BIN_DIR/../config.sh"
+
+if [ ! -x "$BIN_DIR/focus" ] || [ "$BIN_DIR/focus.m" -nt "$BIN_DIR/focus" ]; then
+  "$BIN_DIR/build"
+fi
+
+BUNDLE="$(t3_bundle)"
+INSTANCES_ENV=""
+for name in "${INSTANCES[@]}"; do
+  INSTANCES_ENV="$INSTANCES_ENV,$name=$(instance_app "$name")"
+done
+
+export T3_FOCUS_STATE_DIR="$STATE_DIR"
+export T3_FOCUS_EXEC="$BUNDLE/Contents/MacOS/$(t3_executable "$BUNDLE")"
+export T3_FOCUS_INSTANCES="${INSTANCES_ENV#,}"
+
+exec "$BIN_DIR/focus" "$@"
