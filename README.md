@@ -28,7 +28,7 @@ open ~/Applications/T3\ Code\ Work.app
 ./bin/status
 ```
 
-Bind `raycast/t3-focus.sh` to Cmd+1: in Raycast, Settings → Extensions → Script Commands → add the `raycast/` directory here, search "T3 Code Focus", then assign the hotkey. Cmd+1 starts both when none runs, focuses the running one when only one does, and with both running switches to the other one when one of them is already focused — otherwise it goes to the one you used most recently, read from window order at press time (`bin/zorder.py`).
+Bind `raycast/t3-focus.sh` to Cmd+1: in Raycast, Settings → Extensions → Script Commands → add the `raycast/` directory here, search "T3 Code Focus", then assign the hotkey. Cmd+1 starts both when none runs, focuses the running one when only one does, and with both running switches to the other one when one of them is already focused — or owns the frontmost window — and otherwise it goes to the one you used most recently, read from window order at press time (`bin/focus.py`).
 
 `seed-trial` snapshots each live `state.sqlite` with `VACUUM INTO` and copies the rest of `userdata`, including `settings.json`, `secrets` and the connection catalog, so providers carry over. If a provider key does not decrypt in the trial, re-enter it once. The trial's agents share the live OpenCode session databases (`OPENCODE_DB`), so avoid running turns in a live instance and its trial copy at the same moment.
 

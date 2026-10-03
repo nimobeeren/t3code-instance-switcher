@@ -6,8 +6,9 @@
 # @raycast.description Focus a running T3 Code instance, or start both
 #
 # Bind this to Cmd+1 in Raycast. With no instance running it starts both. With
-# one running it focuses it. With both running it switches when one of them is
-# already focused, and otherwise goes to the one you used most recently.
+# one running it focuses it. With both running it switches to the other one when
+# one of them is already focused — or owns the frontmost window — and otherwise
+# goes to the one you used most recently.
 set -euo pipefail
 
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)"
@@ -18,34 +19,29 @@ work=false
 if instance_running personal; then personal=true; fi
 if instance_running work; then work=true; fi
 
-if $personal && $work; then
-  personal_pid="$(instance_pid personal)"
-  work_pid="$(instance_pid work)"
-  read -r front mru <<<"$(python3 "$BIN_DIR/zorder.py" "$personal_pid" "$work_pid")"
-  if [ "$front" = "$personal_pid" ]; then
-    target=work
-  elif [ "$front" = "$work_pid" ]; then
-    target=personal
-  elif [ "$mru" = "$personal_pid" ]; then
-    target=personal
-  elif [ "$mru" = "$work_pid" ]; then
-    target=work
-  else
-    target="$(cat "$STATE_DIR/last" 2>/dev/null || echo personal)"
-    case "$target" in
-      personal | work) ;;
-      *) target=personal ;;
-    esac
-  fi
-elif $personal; then
-  target=personal
-elif $work; then
-  target=work
-else
+if ! $personal && ! $work; then
   echo personal >"$STATE_DIR/last"
   /usr/bin/open "$(instance_app personal)" "$(instance_app work)"
   exit 0
 fi
 
-echo "$target" >"$STATE_DIR/last"
-/usr/bin/open "$(instance_app "$target")"
+fallback=personal
+if [ -s "$STATE_DIR/last" ]; then
+  fallback="$(<"$STATE_DIR/last")"
+fi
+case "$fallback" in
+  personal | work) ;;
+  *) fallback=personal ;;
+esac
+
+args=(--fallback "$fallback")
+if $personal; then args+=(--personal "$(instance_pid personal)"); fi
+if $work; then args+=(--work "$(instance_pid work)"); fi
+
+# focus.py picks the instance and activates it by pid. A non-zero exit means it
+# printed the name but could not activate it — the instance is still starting up
+# and has no NSRunningApplication yet, while the app bundle reaches it anyway.
+if ! target="$(python3 -E -S -B "$BIN_DIR/focus.py" "${args[@]}")"; then
+  /usr/bin/open "$(instance_app "${target:-$fallback}")"
+fi
+printf '%s\n' "${target:-$fallback}" >"$STATE_DIR/last"

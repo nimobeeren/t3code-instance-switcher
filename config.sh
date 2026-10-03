@@ -64,13 +64,14 @@ t3_bundle() {
 }
 
 t3_executable() {
-  local bundle="$1" dir="$1/Contents/MacOS" count
-  count="$(ls -1 "$dir" | wc -l | tr -d ' ')"
-  if [ "$count" = "1" ]; then
-    ls -1 "$dir"
-  else
-    basename "$bundle" .app
+  local bundle="$1" dir="$1/Contents/MacOS" base
+  local names=("$dir"/*)
+  if [ -e "${names[0]}" ] && [ "${#names[@]}" -eq 1 ]; then
+    printf '%s\n' "${names[0]##*/}"
+    return 0
   fi
+  base="${bundle##*/}"
+  printf '%s\n' "${base%.app}"
 }
 
 # A pid file holds the instance's main process: written just before `exec`, so
@@ -78,16 +79,19 @@ t3_executable() {
 # other pids and NSRunningApplication cannot activate them — matching those is
 # what makes a "focus" silently do nothing.
 instance_pid() {
-  cat "$STATE_DIR/$1.pid" 2>/dev/null || true
+  local file="$STATE_DIR/$1.pid"
+  [ -s "$file" ] || return 0
+  printf '%s\n' "$(<"$file")"
 }
 
 instance_running() {
-  local pid exe bundle
+  local pid exe bundle args
   pid="$(instance_pid "$1")"
   [ -n "$pid" ] || return 1
   bundle="$(t3_bundle)" || return 1
   exe="$bundle/Contents/MacOS/$(t3_executable "$bundle")"
-  /bin/ps -p "$pid" -o args= 2>/dev/null | /usr/bin/grep -qF "$exe"
+  args="$(/bin/ps -p "$pid" -o args= 2>/dev/null)" || return 1
+  [[ "$args" == *"$exe"* ]]
 }
 
 focus_pid() {
